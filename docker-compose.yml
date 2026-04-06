@@ -1,0 +1,142 @@
+version: "3.9"
+
+networks:
+  cv_net:
+    driver: bridge
+
+services:
+ # ── Test RTSP source ────────────────────────────────────────────────────────
+  # mediamtx accepts an incoming GStreamer push and republishes it as an RTSP
+  # stream at rtsp://mediamtx:8554/live.  The frame-reader consumes this URL
+  # exactly as it would a real camera — useful for local dev and CI.
+  #
+  # Usage:
+  #   VIDEO_FILE=videos/test.mp4 docker compose up mediamtx rtsp-streamer
+  #   Then set RTSP_URL=rtsp://mediamtx:8554/live in .env
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    networks: [cv_net]
+    ports:
+      - "8554:8554"     # RTSP — expose to host so you can open in VLC
+      - "8888:8888"     # HLS  — optional web preview at http://localhost:8888/live
+    environment:
+      # Allow any source to publish without authentication (dev only)
+      MTX_PATHS_LIVE_SOURCE: publisher
+      MTX_LOGLEVEL: warn
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8554 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  rtsp-streamer:
+    # Reads VIDEO_FILE and pushes it to mediamtx via GStreamer rtspclientsink.
+    # Loops the file indefinitely so the frame-reader sees a continuous stream.
+    #
+    # Supported containers: .mp4, .mov, .mkv (auto-detected by decodebin)
+    # The stream is re-encoded to H.264 before pushing — mediamtx and
+    # frame-reader both handle it regardless of the source codec.
+    image: restreamio/gstreamer:latest-prod
+    networks: [cv_net]
+    environment:
+      VIDEO_FILE: "${VIDEO_FILE:-/videos/test.mp4}"
+      RTSP_SINK: "rtsp://mediamtx:8554/live"
+    volumes:
+      - ./videos:/videos:ro
+    command: >
+      bash -c '
+        echo "Streaming $$VIDEO_FILE → $$RTSP_SINK (looping)"
+        while true; do
+          gst-launch-1.0 -e \
+            filesrc location="$$VIDEO_FILE" \
+            ! decodebin name=d \
+            d. ! queue \
+                ! videoconvert \
+                ! video/x-raw,format=I420 \
+                ! x264enc tune=zerolatency bitrate=4000 speed-preset=superfast \
+                ! rtspclientsink location="$$RTSP_SINK" protocols=tcp
+          echo "File ended — restarting stream in 1s"
+          sleep 1
+        done
+      '
+    depends_on:
+      mediamtx:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Core services ───────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    command: >
+      redis-server
+      --maxmemory 4gb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+      --notify-keyspace-events "Ex"
+    networks: [cv_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  frame-reader:
+    build:
+      context: .
+      dockerfile: services/frame-reader/Dockerfile
+    runtime: nvidia
+    networks: [cv_net]
+    environment:
+      SOURCE: "${SOURCE:-rtsp}"
+      RTSP_URL: "${RTSP_URL:-rtsp://admin:pass@192.168.1.100:554/stream1}"
+      VIDEO_PATH: "${VIDEO_PATH:-}"
+      CAM_ID: "${CAM_ID:-cam0}"
+      CODEC: "${CODEC:-h264}"
+      LOOP: "${LOOP:-false}"
+      REDIS_HOST: redis
+      FRAME_RATE: "5"
+      FRAME_TTL_MS: "2000"
+      JPEG_TTL_S: "30"
+      NVIDIA_VISIBLE_DEVICES: "0"
+      NVIDIA_DRIVER_CAPABILITIES: "video,compute,utility"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  inference-worker:
+    build:
+      context: .
+      dockerfile: services/inference-worker/Dockerfile
+    runtime: nvidia
+    networks: [cv_net]
+    environment:
+      REDIS_HOST: redis
+      CAM_ID: "${CAM_ID:-cam0}"
+      WORKER_ID: "seg-0"
+      MODEL_TYPE: "${MODEL_TYPE:-maskdino}"
+      NVIDIA_VISIBLE_DEVICES: "0"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frame-archiver:
+    build:
+      context: .
+      dockerfile: services/frame-archiver/Dockerfile
+    networks: [cv_net]
+    environment:
+      REDIS_HOST: redis
+      CAM_ID: "${CAM_ID:-cam0}"
+      OUTPUT_DIR: /archive
+    volumes:
+      - ./archive:/archive
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped

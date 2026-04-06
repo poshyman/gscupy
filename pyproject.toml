@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# ── Workspace ─────────────────────────────────────────────────────────────────
+# uv workspace: each service is an independent installable package.
+# `uv pip install -e "services/frame-reader"` installs that package plus
+# its declared dependencies without touching the other services.
+
+[tool.uv.sources]
+gscupy = { workspace = true }
+
+[tool.uv.workspace]
+members = [
+    "shared",
+    "services/frame-reader",
+    "services/inference-worker",
+    "services/frame-archiver",
+]
+
+# ── Ruff ──────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line length handled by black
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["gscupy"]
+
+# ── Black ─────────────────────────────────────────────────────────────────────
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+# ── Mypy ──────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true   # GStreamer stubs aren't typed
+warn_unused_ignores = true
+warn_return_any = true
+
+# ── Pytest ────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+markers = [
+    "unit: fast tests, no external services",
+    "integration: requires redis to be running",
+    "gpu: requires NVIDIA GPU and NVDEC",
+]

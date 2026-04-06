@@ -1,0 +1,37 @@
+# .devcontainer/docker-compose.devcontainer.yml
+#
+# Adds a lightweight devcontainer service to the main docker-compose.yml stack.
+# The dev container shares the same network as redis, frame-reader, and workers
+# so you can redis-cli, curl, and debug across services directly.
+#
+# The GPU services (frame-reader, inference-worker) still use the NVIDIA runtime
+# and run exactly as they would in production — you're developing against the
+# real stack, not a mock.
+
+version: "3.9"
+
+services:
+
+  devcontainer:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile.dev
+    volumes:
+      # Mount the whole repo into /workspace
+      - .:/workspace:cached
+      # Persist uv cache across rebuilds
+      - uv-cache:/root/.cache/uv
+      # Persist VSCode server extensions across rebuilds
+      - vscode-server:/root/.vscode-server
+    networks: [cv_net]
+    environment:
+      # So scripts can reach redis by name
+      REDIS_HOST: redis
+    # Keep the container alive
+    command: sleep infinity
+    # Never restart automatically — VSCode manages the lifecycle
+    restart: "no"
+
+volumes:
+  uv-cache:
+  vscode-server:

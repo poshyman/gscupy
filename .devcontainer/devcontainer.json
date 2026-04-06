@@ -1,0 +1,74 @@
+{
+  "name": "gscupy",
+  "dockerComposeFile": [
+    "../docker-compose.yml",
+    "docker-compose.devcontainer.yml"
+  ],
+  "service": "devcontainer",
+  "workspaceFolder": "/workspace",
+
+  // Shut down all Compose services when the dev container stops
+  "shutdownAction": "stopCompose",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Python
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "charliermarsh.ruff",
+        "ms-python.mypy-type-checker",
+
+        // Docker / containers
+        "ms-azuretools.vscode-docker",
+        "ms-vscode-remote.remote-containers",
+
+        // YAML / TOML
+        "redhat.vscode-yaml",
+        "tamasfe.even-better-toml",
+
+        // Git
+        "eamodio.gitlens",
+        "mhutchie.git-graph",
+
+        // Utilities
+        "usernamehw.errorlens",
+        "streetsidesoftware.code-spell-checker",
+        "gruntfuggly.todo-tree"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspace/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
+
+        "[python]": {
+          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+
+        "ruff.enable": true,
+        "ruff.organizeImports": true,
+        "mypy-type-checker.args": ["--config-file", "pyproject.toml"],
+
+        "editor.rulers": [88],
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+
+        // Show Redis, Docker logs inline
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  // Commands run as root inside the container
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  // Forward Redis port for redis-cli / RedisInsight on host
+  "forwardPorts": [6379],
+  "portsAttributes": {
+    "6379": { "label": "Redis", "onAutoForward": "silent" }
+  }
+}
